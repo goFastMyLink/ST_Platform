@@ -5,7 +5,8 @@ function [P0, u, v] = crankGeom(p, i)
 %   v  - направление кривошипа при математическом угле +90°
 % Конец кривошипа: C(a) = P0 + l_kr*( cos(a+off)*u + sin(a+off)*v )
 g  = p.A_ang(i)*pi/180;
-P0 = [p.R_A*cos(g); p.R_A*sin(g); p.h_A];
+R  = p.R_A(min(i, numel(p.R_A)));    % R_A - число или [1x6] (для каждой ноги)
+P0 = [R*cos(g); R*sin(g); p.h_A];
 er = [cos(g); sin(g); 0];            % радиальное направление
 et = [-sin(g); cos(g); 0];           % касательное (против часовой)
 ez = [0; 0; 1];

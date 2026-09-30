@@ -9,7 +9,8 @@ B = Rot*p.Bp + q(1:3)';
 A = zeros(3,6);
 for i = 1:6
     g = p.A_ang(i)*pi/180;
-    A(:,i) = [p.R_A*cos(g); p.R_A*sin(g); p.h_A];
+    R = p.R_A(min(i, numel(p.R_A)));      % R_A - число или [1x6]
+    A(:,i) = [R*cos(g); R*sin(g); p.h_A];
 end
 if nargin > 2
     for k = 1:3
