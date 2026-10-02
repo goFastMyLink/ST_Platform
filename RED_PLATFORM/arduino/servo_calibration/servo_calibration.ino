@@ -25,7 +25,7 @@ Adafruit_PWMServoDriver pca = Adafruit_PWMServoDriver(0x40);
 
 const uint8_t CH[3] = {0, 1, 2};         // номера каналов PCA9685 (0..15) для серво в B1, B3, B5
 const float FREQ = 50.0;                 // Гц - та же частота, что cal.freq в servoToPCA.m
-const int T_MIN = 102, T_MAX = 512;      // ~500..2500 мкс - защита от упора
+const int T_MIN = 184, T_MAX = 430;      // ~900..2100 мкс - рабочий диапазон FB5118M, дальше вал не идёт
 const uint8_t FB[3] = {A0, A1, A2};      // провод обратной связи серво в B1, B3, B5
 int ticks[3] = {307, 307, 307};          // 307 отсчётов ~ 1500 мкс
 int sel = 0;
