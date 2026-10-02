@@ -7,8 +7,10 @@ function [VZ, EA_deg, ok, q] = fk(p, a_deg, q0)
 % не перескочит на другую сборку механизма.
 if nargin < 3, q0 = p.q0; end
 f = @(q) legRes(p, q, a_deg);
-[q, ~, flag] = fsolve(f, q0, optimset('Display','off','TolFun',1e-12,'TolX',1e-12));
-ok = flag > 0 && max(abs(f(q))) < 1e-6;
+[q] = fsolve(f, q0, optimset('Display','off','TolFun',1e-14,'TolX',1e-12,'MaxIter',400,'MaxFunEvals',4000));
+% Успех проверяем по невязке, а не по exitflag: MATLAB при очень жёстких допусках
+% возвращает exitflag = -3 даже для сошедшегося решения. 1e-4 мм^2 ~ 3e-7 мм по длине тяги.
+ok = max(abs(f(q))) < 1e-4;
 [VZ, EA_deg] = poseToVZ(p, q);
 end
 
