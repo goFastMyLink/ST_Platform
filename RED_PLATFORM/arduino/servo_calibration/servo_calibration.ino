@@ -15,7 +15,7 @@
     1 / 2 / 3  - выбрать серво (шарниры B1, B3, B5 по схеме)
     + / -      - импульс +1 / -1 отсчёт  (~4.9 мкс)
     ] / [      - импульс +10 / -10 отсчётов (~49 мкс)
-    0          - вернуть выбранную серво в 1500 мкс
+    0          - вернуть выбранную серво в её ноль (ZERO)
     p          - напечатать отсчёты всех трёх серво и их обратную связь
 */
 #include <Wire.h>
@@ -25,9 +25,10 @@ Adafruit_PWMServoDriver pca = Adafruit_PWMServoDriver(0x40);
 
 const uint8_t CH[3] = {0, 1, 2};         // номера каналов PCA9685 (0..15) для серво в B1, B3, B5
 const float FREQ = 50.0;                 // Гц - та же частота, что cal.freq в servoToPCA.m
-const int T_MIN = 184, T_MAX = 430;      // ~900..2100 мкс - рабочий диапазон FB5118M, дальше вал не идёт
+const int T_MIN = 102, T_MAX = 512;      // ~500..2500 мкс (серво 2 в нуле уже на ~669 мкс)
 const uint8_t FB[3] = {A0, A1, A2};      // провод обратной связи серво в B1, B3, B5
-int ticks[3] = {307, 307, 307};          // 307 отсчётов ~ 1500 мкс
+int ticks[3] = {177, 137, 187};          // найденные нули (кривошип горизонтален), 02.10.2026
+const int ZERO[3] = {177, 137, 187};     // ноль: 864 / 669 / 913 мкс
 int sel = 0;
 
 float toUs(int t) { return t * 1e6 / (FREQ * 4096.0); }
@@ -78,7 +79,7 @@ void loop() {
     case '-': ticks[sel] -= 1;  apply(sel); break;
     case ']': ticks[sel] += 10; apply(sel); break;
     case '[': ticks[sel] -= 10; apply(sel); break;
-    case '0': ticks[sel] = 307; apply(sel); break;
+    case '0': ticks[sel] = ZERO[sel]; apply(sel); break;
     case 'p': break;
     default: return;                     // переводы строк и прочее - игнор
   }
