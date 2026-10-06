@@ -8,8 +8,10 @@
                    ответ: OK a1 a2 a3   (если угол обрезан пределами - CLIP a1 a2 a3)
     Z            - все в нейтраль A_NEUTRAL   ответ: OK a a a
     F            - обратная связь         ответ: FB adc1 adc2 adc3
-    M            - MPU на платформе       ответ: MPU roll pitch g
-                   roll, pitch - град (оси самого MPU), g - модуль ускорения в g (в покое ~1.00)
+    M            - MPU на платформе       ответ: MPU roll pitch g n
+                   roll, pitch - град (оси самого MPU), g - модуль ускорения в g (в покое ~1.00),
+                   n - сколько раз MPU пропадал и был заново инициализирован с момента старта
+                   (если MPU сейчас не отвечает - ERR mpu)
   Серво 1, 2, 3 - приводы в шарнирах B1, B3, B5 по схеме (A1, A3, A5 в MATLAB).
 
   MPU6050 (GY-521) и PCA9685 - на одной шине I2C (у Mega пины SDA/SCL возле AREF
@@ -45,6 +47,8 @@ int16_t raw[7];                    // ax ay az t gx gy gz
 float gBias[3] = {0, 0, 0};
 float roll = 0, pitch = 0, gNorm = 1;
 bool  mpuOk = false;
+bool  mpuFresh = true;             // после (пере)инициализации углы берём заново с акселерометра
+unsigned int mpuResets = 0;
 unsigned long tMpu = 0;
 
 void mpuWrite(uint8_t reg, uint8_t val) {
@@ -89,6 +93,8 @@ void mpuCalib() {                  // нуль гироскопа (платфо�
   for (int k = 0; k < 3; k++) gBias[k] = n ? (float)sum[k] / n : 0;
   mpuOk = mpuRead();
   if (mpuOk) accAngles(roll, pitch);
+  if (mpuOk && gNorm < 0.3) mpuOk = false;
+  mpuFresh = !mpuOk;
   tMpu = micros();
 }
 
@@ -100,6 +106,13 @@ void mpuUpdate() {
   mpuOk = mpuRead();
   if (!mpuOk) return;
   float rA, pA; accAngles(rA, pA);
+  if (gNorm < 0.3) {               // все нули: MPU перезагрузился (просадка питания/помеха) и уснул
+    mpuOk = false; mpuFresh = true; mpuResets++;
+    mpuInit();                     // разбудить и заново настроить (~0.1 с); нуль гироскопа сохраняется
+    tMpu = micros();
+    return;
+  }
+  if (mpuFresh) { roll = rA; pitch = pA; mpuFresh = false; return; }
   float gx = (raw[4] - gBias[0]) / GYR_LSB, gy = (raw[5] - gBias[1]) / GYR_LSB;
   float a = (fabs(gNorm - 1.0) < 0.15) ? ALPHA : 1.0;   // при рывках акселерометру не верим
   roll  = a * (roll  + gx * dt) + (1 - a) * rA;
@@ -141,7 +154,8 @@ void handle(char* s) {
     if (!mpuOk) { Serial.println("ERR mpu"); return; }
     Serial.print("MPU "); Serial.print(roll, 2);
     Serial.print(' ');    Serial.print(pitch, 2);
-    Serial.print(' ');    Serial.println(gNorm, 3);
+    Serial.print(' ');    Serial.print(gNorm, 3);
+    Serial.print(' ');    Serial.println(mpuResets);
   } else if (tok[0] == 'F') {
     Serial.print("FB");
     for (int k = 0; k < 3; k++) { Serial.print(' '); Serial.print(analogRead(FB[k])); }
