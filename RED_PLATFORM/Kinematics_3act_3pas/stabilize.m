@@ -60,3 +60,8 @@ subplot(2,1,1); plot(L(:,1), L(:,2:3)); grid on; legend('e roll', 'e pitch');
 ylabel('наклон платформы, град'); title('Отклонение платформы от горизонта (MPU)');
 subplot(2,1,2); plot(L(:,1), L(:,4:5)); grid on; legend('th', 'psi');
 xlabel('t, с'); ylabel('компенсация, град'); title('Заданный наклон платформы относительно основания');
+
+% Сохранить прогон: лог + настройки, чтобы потом строить графики и сравнивать KI
+fn = sprintf('stab_%s.mat', datestr(now, 'yyyymmdd_HHMMSS'));
+save(fn, 'L', 'KI', 'DEAD', 'LIM', 'J', 'r0', 'p0', 'nsat');
+fprintf('Сохранено: %s  (столбцы L: t, e_roll, e_pitch, th, psi, a1, a2, a3)\n', fn);
