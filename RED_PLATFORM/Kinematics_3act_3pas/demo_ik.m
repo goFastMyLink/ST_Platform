@@ -8,10 +8,10 @@
 %   >> PORT = "COM5"; demo_ik
 if ~exist('PORT', 'var'), PORT = "COM3"; end
 p = params_3servo();
-if ~p.q0_ok, error('Нейтральная поза не найдена (p.q0_ok = 0): ПЗК не сошлась при нулевых углах'); end
+if ~p.q0_ok, error('Нейтральная поза не найдена (p.q0_ok = 0): ПЗК не сошлась при углах p.a_ref'); end
 [VZ0, EA0] = poseToVZ(p, p.q0);
 fprintf('Нейтраль: Z MPU = %.1f мм, рыскание = %.1f град\n', VZ0(3), EA0(3));
-A_LIM = [-30 20];              % те же пределы, что в скетче
+A_LIM = [-65 -2];              % те же пределы, что в скетче (A_MIN, A_MAX)
 
 %% 1. Расчёт: набор поз и плавная "волна" наклона
 poses = [ 0  0  0;             % [dZ, th, psi]: dZ в мм, углы в град
@@ -30,7 +30,7 @@ end
 
 T = 10; dt = 0.05; t = 0:dt:T;          % круговой наклон 4° за 5 с, на 5 мм ниже нейтрали
 amp = 4; w = 2*pi/5;
-A_wave = nan(numel(t), 3); a_prev = [0 0 0];
+A_wave = nan(numel(t), 3); a_prev = p.a_ref;
 for n = 1:numel(t)
     [a, ~, ~, ok] = ik_3dof(p, VZ0(3) - 5, amp*sin(w*t(n)), amp*cos(w*t(n)), a_prev);
     if ~ok, error('Волна: поза t=%.2f недостижима', t(n)); end
@@ -49,13 +49,13 @@ for i = 1:size(A_poses,1)
     disp(platform_send(s, A_poses(i,:)));
     pause(1.5);
 end
-disp('Волна (ровно с нуля, первая точка):');
+disp('Волна (первая точка):');
 platform_send(s, A_wave(1,:)); pause(1);
 t0 = tic;
 for n = 1:numel(t)
     while toc(t0) < t(n), end           % держим шаг dt
     platform_send(s, A_wave(n,:));
 end
-platform_send(s, [0 0 0]);
+platform_send(s, p.a_ref);              % вернуть в нейтраль, не на упор
 clear s                                 % закрыть порт
 disp('Готово.');
