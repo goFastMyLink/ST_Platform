@@ -3,9 +3,10 @@
   Arduino переводит их в импульсы PCA9685 и плавно ведёт сервы к цели.
 
   Протокол (115200, строки заканчиваются '\n'):
-    A a1 a2 a3   - углы кривошипов, град (как в MATLAB: 0 - горизонтально, + вниз)
+    A a1 a2 a3   - углы кривошипов, град (как в MATLAB: 0 - горизонтально, + вниз;
+                   рабочий ход только ВВЕРХ: от A_MAX (у горизонтали) до A_MIN (вертикаль))
                    ответ: OK a1 a2 a3   (если угол обрезан пределами - CLIP a1 a2 a3)
-    Z            - все в ноль             ответ: OK 0 0 0
+    Z            - все в нейтраль A_NEUTRAL   ответ: OK a a a
     F            - обратная связь         ответ: FB adc1 adc2 adc3
   Серво 1, 2, 3 - приводы в шарнирах B1, B3, B5 по схеме (A1, A3, A5 в MATLAB).
 */
@@ -14,19 +15,20 @@
 
 Adafruit_PWMServoDriver pca = Adafruit_PWMServoDriver(0x40);
 
-// ---- калибровка (servo_calibration, 02.10.2026) ----
+// ---- калибровка (servo_calibration, 06.10.2026: горизонталь и вертикаль по уровню) ----
 const uint8_t CH[3]     = {0, 1, 2};
 const uint8_t FB[3]     = {A0, A1, A2};
-const float   US0[3]    = {864.3, 668.9, 913.1};   // импульс при a = 0 (кривошип горизонтален)
-const float   US_DEG[3] = {-8.0, -8.0, -8.0};      // мкс на градус - ПРЕДВАРИТЕЛЬНО, уточнить
+const float   US0[3]    = {937.5, 888.7, 913.1};   // импульс при a = 0 (кривошип горизонтален)
+const float   US_DEG[3] = {-7.05, -7.60, -6.51};   // мкс на градус: (вертикаль - горизонталь) / -90
 const float   FREQ      = 50.0;
 
 // ---- ограничения ----
-const float A_MIN = -30.0, A_MAX = 20.0;  // град: вниз (+) запас мал у серво 2 (ноль ~669 мкс)
+const float A_MIN = -90.0, A_MAX = -2.0;  // град: вниз от горизонтали упор, выше вертикали - мёртвая зона
+const float A_NEUTRAL = -22.0;           // рабочая нейтраль: кривошипы на 22° выше горизонтали
 const float US_MIN = 500.0, US_MAX = 2500.0;
 const float RATE  = 60.0;                 // макс. скорость кривошипа, град/с
 
-float cur[3] = {0, 0, 0}, tgt[3] = {0, 0, 0};
+float cur[3] = {A_NEUTRAL, A_NEUTRAL, A_NEUTRAL}, tgt[3] = {A_NEUTRAL, A_NEUTRAL, A_NEUTRAL};
 char line[64]; uint8_t len = 0;
 unsigned long tPrev = 0;
 
@@ -55,7 +57,7 @@ void handle(char* s) {
     for (int k = 0; k < 3; k++) tgt[k] = a[k];
     reply(clip ? "CLIP" : "OK", tgt);
   } else if (tok[0] == 'Z') {
-    for (int k = 0; k < 3; k++) tgt[k] = 0;
+    for (int k = 0; k < 3; k++) tgt[k] = A_NEUTRAL;
     reply("OK", tgt);
   } else if (tok[0] == 'F') {
     Serial.print("FB");
@@ -72,7 +74,7 @@ void setup() {
   pca.setOscillatorFrequency(25000000);
   pca.setPWMFreq(FREQ);
   delay(10);
-  for (int k = 0; k < 3; k++) writeAngle(k, 0);
+  for (int k = 0; k < 3; k++) writeAngle(k, A_NEUTRAL);   // старт сразу в нейтраль, не на упор
   tPrev = millis();
   Serial.println("READY");
 }
