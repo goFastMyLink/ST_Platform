@@ -7,6 +7,11 @@ function stabilize_demo(PORT)
 %
 % Основание при старте стоит РОВНО, ~2 с ничего не трогать (запоминается горизонт).
 % Регулятор и настройки - те же, что в stabilize.m (ПИ, проверено 06.10.2026).
+%
+% Как устроена остановка: при Ctrl+C рабочее пространство функции уничтожается
+% раньше, чем срабатывает onCleanup, поэтому всё нужное для остановки передаётся
+% в demo_stop заранее (порт - это handle-объект, он остаётся жив), а лог
+% складывается кусками в глобальную переменную STAB_DEMO (теряется не больше ~1 с).
 if nargin < 1, PORT = "COM5"; end
 p = params_3servo();
 [VZ0, ~] = poseToVZ(p, p.q0);
@@ -20,19 +25,23 @@ TAU_P = 0.08;     % с: сглаживание ошибки для П-части
 DEAD  = 0.15;     % зона нечувствительности интегратора, град
 LIM   = 8;        % предел |th|, |psi|, град
 
-L = zeros(200000, 8); n = 0;       % лог: t, e_roll, e_pitch, th, psi, a1, a2, a3 (~1 ч при 55 Гц)
-nsat = 0; r0 = NaN; p0 = NaN; s = [];
-cleaner = onCleanup(@finish);      %#ok<NASGU> вызовется и при Ctrl+C, и при ошибке
+global STAB_DEMO
+STAB_DEMO = struct('chunks', {{}}, 'nsat', 0, 'r0', NaN, 'p0', NaN, ...
+                   'KP', KP, 'KI', KI, 'TAU_P', TAU_P, 'DEAD', DEAD, 'LIM', LIM, 'J', J);
 
 s = platform_connect(PORT);
+cleaner = onCleanup(@() demo_stop(s, p.a_ref));    %#ok<NASGU> сработает и при Ctrl+C
+
 platform_send(s, p.a_ref);
 pause(1.5);
 [r0, p0] = mpu_read(s, 30);        % "горизонт" = MPU в нейтрали на ровном основании
+STAB_DEMO.r0 = r0; STAB_DEMO.p0 = p0;
 fprintf('Горизонт MPU: roll0 = %.2f, pitch0 = %.2f\n', r0, p0);
 input('Enter - старт стабилизации. Остановка - Ctrl+C.');
 disp('Стабилизация работает... (Ctrl+C - стоп)');
 
 u = [0; 0]; uI = [0; 0]; ef = [0; 0]; a_prev = p.a_ref;
+B = zeros(50, 8); k = 0;           % буфер лога: t, e_roll, e_pitch, th, psi, a1, a2, a3
 t0 = tic; tp = 0;
 while true
     writeline(s, "M");
@@ -51,39 +60,45 @@ while true
         if ok && all(a >= -65 & a <= -2)
             platform_send(s, a); a_prev = a; u = u_new; uI = uI_new;
         else
-            nsat = nsat + 1;                           % поза недостижима - держим прежнюю
+            STAB_DEMO.nsat = STAB_DEMO.nsat + 1;       % поза недостижима - держим прежнюю
         end
     else
         uI = uI_new;
     end
-    if n < size(L, 1), n = n + 1; L(n, :) = [tn, e', u', a_prev]; end
+    k = k + 1; B(k, :) = [tn, e', u', a_prev];
+    if k == size(B, 1)                                 % ~1 с набрали - сбросить в глобальный лог
+        STAB_DEMO.chunks{end+1} = B; k = 0;
+    end
+end
 end
 
-    function finish()
-        % Срабатывает при Ctrl+C: нейтраль, закрыть порт, график, сохранить
-        if ~isempty(s)
-            try
-                flush(s);                              % выбросить недочитанные ответы
-                writeline(s, sprintf('A %.2f %.2f %.2f', p.a_ref));
-                pause(0.3);
-            catch
-            end
-            try, delete(s); catch, end                 % закрыть порт
-        end
-        fprintf('\nСтоп. Платформа возвращена в нейтраль.\n');
-        if n < 2, return; end
-        Lg = L(1:n, :);
-        en = vecnorm(Lg(:, 2:3), 2, 2);
-        fprintf('Время: %.0f с, шагов: %d (%.0f Гц), упирались в предел: %d\n', Lg(end,1), n, n/Lg(end,1), nsat);
-        fprintf('Ошибка горизонта: средняя |e| = %.2f°, макс = %.2f°\n', mean(en), max(en));
-        figure;
-        subplot(2,1,1); plot(Lg(:,1), Lg(:,2:3)); grid on; legend('e roll', 'e pitch');
-        ylabel('наклон платформы, град'); title('Отклонение платформы от горизонта (MPU)');
-        subplot(2,1,2); plot(Lg(:,1), Lg(:,4:5)); grid on; legend('th', 'psi');
-        xlabel('t, с'); ylabel('компенсация, град'); title('Заданный наклон платформы относительно основания');
-        drawnow;
-        fn = sprintf('stab_%s.mat', datestr(now, 'yyyymmdd_HHMMSS'));
-        L = Lg; save(fn, 'L', 'KP', 'KI', 'TAU_P', 'DEAD', 'LIM', 'J', 'r0', 'p0', 'nsat');
-        fprintf('Сохранено: %s\n', fn);
-    end
+function demo_stop(s, a_ref)
+% Вызывается по Ctrl+C: нейтраль, закрыть порт, график, сохранить лог.
+global STAB_DEMO
+try
+    flush(s);                                          % выбросить недочитанные ответы
+    writeline(s, sprintf('A %.2f %.2f %.2f', a_ref));
+    pause(0.3);
+catch
+end
+try, delete(s); catch, end                             % закрыть порт
+fprintf('\nСтоп. Платформа возвращена в нейтраль, порт закрыт.\n');
+if isempty(STAB_DEMO) || isempty(STAB_DEMO.chunks), return; end
+D = STAB_DEMO;
+L = vertcat(D.chunks{:});
+en = vecnorm(L(:, 2:3), 2, 2);
+fprintf('Время: %.0f с, шагов: %d (%.0f Гц), упирались в предел: %d\n', ...
+        L(end,1), size(L,1), size(L,1)/L(end,1), D.nsat);
+fprintf('Ошибка горизонта: средняя |e| = %.2f°, макс = %.2f°\n', mean(en), max(en));
+figure;
+subplot(2,1,1); plot(L(:,1), L(:,2:3)); grid on; legend('e roll', 'e pitch');
+ylabel('наклон платформы, град'); title('Отклонение платформы от горизонта (MPU)');
+subplot(2,1,2); plot(L(:,1), L(:,4:5)); grid on; legend('th', 'psi');
+xlabel('t, с'); ylabel('компенсация, град'); title('Заданный наклон платформы относительно основания');
+drawnow;
+KP = D.KP; KI = D.KI; TAU_P = D.TAU_P; DEAD = D.DEAD; LIM = D.LIM; J = D.J; %#ok<NASGU>
+r0 = D.r0; p0 = D.p0; nsat = D.nsat;                                       %#ok<NASGU>
+fn = sprintf('stab_%s.mat', datestr(now, 'yyyymmdd_HHMMSS'));
+save(fn, 'L', 'KP', 'KI', 'TAU_P', 'DEAD', 'LIM', 'J', 'r0', 'p0', 'nsat');
+fprintf('Сохранено: %s\n', fn);
 end
